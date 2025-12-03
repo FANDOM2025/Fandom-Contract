@@ -30,8 +30,11 @@ contract VestingDistributor is Ownable, ReentrancyGuard {
     event Defunded(address indexed to, uint256 amount);
     event Distributed(address indexed user, uint256 amount);
     event DistributedAll(uint256 totalUsers, uint256 totalPaid);
+    event Claimed(address indexed user, uint256 amount);
 
     constructor(IERC20 _token, address _owner) Ownable(_owner) {
+        require(address(_token) != address(0), "zero token");
+        require(_owner != address(0), "zero owner");
         token = _token;
     }
 
@@ -63,10 +66,11 @@ contract VestingDistributor is Ownable, ReentrancyGuard {
     function removeAllPoliciesOf(address user) external onlyOwner {
         require(tgeTimestamp == 0, "TGE set");
         Policy[] storage arr = _policies[user];
-        require(arr.length > 0, "no policies");
+        uint256 removed = arr.length;
+        require(removed > 0, "no policies");
 
         uint256 sum;
-        for (uint256 i = 0; i < arr.length; i++) {
+        for (uint256 i = 0; i < removed; i++) {
             sum += arr[i].totalAllocation;
         }
         totalAllocated -= sum;
@@ -82,7 +86,7 @@ contract VestingDistributor is Ownable, ReentrancyGuard {
             }
         }
 
-        emit UserPoliciesRemoved(user, arr.length, sum);
+        emit UserPoliciesRemoved(user, removed, sum);
     }
 
     function setTGE(uint256 _tgeTimestamp) external onlyOwner {
@@ -123,6 +127,15 @@ contract VestingDistributor is Ownable, ReentrancyGuard {
         }
 
         emit DistributedAll(_users.length, totalPaid);
+    }
+
+    function claim() external nonReentrant {
+        require(tgeTimestamp > 0 && block.timestamp >= tgeTimestamp, "TGE not started");
+        uint256 amt = _claimableUser(msg.sender);
+        require(amt > 0, "nothing");
+        _markClaimed(msg.sender, amt);
+        token.safeTransfer(msg.sender, amt);
+        emit Claimed(msg.sender, amt);
     }
 
     function users() external view returns (address[] memory) {
