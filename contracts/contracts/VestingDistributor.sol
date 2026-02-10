@@ -4,8 +4,9 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract VestingDistributor is ReentrancyGuard {
+contract VestingDistributor is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     struct Policy {
@@ -16,14 +17,12 @@ contract VestingDistributor is ReentrancyGuard {
     }
 
     IERC20 public immutable token;
-    address public safe;
     uint256 public tgeTimestamp;
     uint256 public totalAllocated;
 
     mapping(address => Policy[]) private _policies;
     address[] private _users;
 
-    event SafeChanged(address indexed oldSafe, address indexed newSafe);
     event PolicyAdded(address indexed user, uint256 allocation, uint256 lockMonths, uint256 vestingMonths);
     event UserPoliciesRemoved(address indexed user, uint256 removedPolicies, uint256 removedAllocationSum);
     event TGESet(uint256 tgeTimestamp);
@@ -33,24 +32,10 @@ contract VestingDistributor is ReentrancyGuard {
     event DistributedAll(uint256 totalUsers, uint256 totalPaid);
     event Claimed(address indexed user, uint256 amount);
 
-    modifier onlySafe() {
-        require(msg.sender == safe, "only Safe");
-        _;
-    }
-
-    constructor(IERC20 _token, address _safe) {
+    constructor(IERC20 _token, address owner_) Ownable(owner_) {
         require(address(_token) != address(0), "zero token");
-        require(_safe != address(0), "zero safe");
+        require(owner_ != address(0), "zero owner");
         token = _token;
-        safe = _safe;
-        emit SafeChanged(address(0), _safe);
-    }
-
-    function setSafe(address newSafe) external onlySafe {
-        require(newSafe != address(0), "zero safe");
-        address old = safe;
-        safe = newSafe;
-        emit SafeChanged(old, newSafe);
     }
 
     function addPolicy(
@@ -58,7 +43,7 @@ contract VestingDistributor is ReentrancyGuard {
         uint256 allocation,
         uint256 lockMonths,
         uint256 vestingMonths
-    ) external onlySafe {
+    ) external onlyOwner {
         require(tgeTimestamp == 0, "TGE set");
         require(user != address(0), "zero user");
         require(allocation > 0, "allocation=0");
@@ -78,7 +63,7 @@ contract VestingDistributor is ReentrancyGuard {
         emit PolicyAdded(user, allocation, lockMonths, vestingMonths);
     }
 
-    function removeAllPoliciesOf(address user) external onlySafe {
+    function removeAllPoliciesOf(address user) external onlyOwner {
         require(tgeTimestamp == 0, "TGE set");
         Policy[] storage arr = _policies[user];
         uint256 removed = arr.length;
@@ -104,7 +89,7 @@ contract VestingDistributor is ReentrancyGuard {
         emit UserPoliciesRemoved(user, removed, sum);
     }
 
-    function setTGE(uint256 _tgeTimestamp) external onlySafe {
+    function setTGE(uint256 _tgeTimestamp) external onlyOwner {
         require(tgeTimestamp == 0, "already");
         require(_tgeTimestamp >= block.timestamp, "past");
         require(token.balanceOf(address(this)) == totalAllocated, "deposit != allocated");
@@ -113,19 +98,19 @@ contract VestingDistributor is ReentrancyGuard {
         emit TGESet(_tgeTimestamp);
     }
 
-    function fund(uint256 amount) external onlySafe {
+    function fund(uint256 amount) external onlyOwner {
         require(tgeTimestamp == 0, "TGE set");
         token.safeTransferFrom(msg.sender, address(this), amount);
         emit Funded(msg.sender, amount);
     }
 
-    function defund(uint256 amount) external onlySafe {
+    function defund(uint256 amount) external onlyOwner {
         require(tgeTimestamp == 0, "TGE set");
-        token.safeTransfer(safe, amount);
-        emit Defunded(safe, amount);
+        token.safeTransfer(owner(), amount);
+        emit Defunded(owner(), amount);
     }
 
-    function distribute() external onlySafe nonReentrant {
+    function distribute() external onlyOwner nonReentrant {
         require(tgeTimestamp > 0 && block.timestamp >= tgeTimestamp, "TGE not started");
 
         uint256 totalPaid;
