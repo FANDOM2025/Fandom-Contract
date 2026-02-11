@@ -210,4 +210,9 @@ contract VestingDistributor is ReentrancyGuard, Ownable {
             }
         }
     }
+
+    function rescueERC20(address otherToken, uint256 amount) external onlyOwner {
+        require(otherToken != address(token), "cannot rescue claim token");
+        IERC20(otherToken).safeTransfer(owner(), amount);
+      }
 }
